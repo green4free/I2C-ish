@@ -13,7 +13,7 @@ architecture test of com_tb is
 component master is
 port (
     data_wire, clk_wire: inout std_logic;
-    clk: in std_logic;
+    clk, rst: in std_logic;
     dir: in std_logic; -- 1 = write, 0 = read
     s_data: in std_logic_vector(7 downto 0);
     r_data: out std_logic_vector(7 downto 0);
@@ -34,6 +34,7 @@ port (
     data_wire, clk_wire: inout std_logic;
     clkOut: out std_logic;
     dir: out std_logic; -- 1 = write, 0 = read
+    rst: in std_logic;
     s_data: in std_logic_vector(7 downto 0);
     r_data: out std_logic_vector(7 downto 0);
     go: out std_logic;
@@ -57,7 +58,7 @@ end component bus_interface;
     
     signal data_wire, clk_wire: std_logic;
     signal clk: std_logic := '0';
-    signal dir: std_logic; -- 1 = write, 0 = read
+    signal dir, rst: std_logic; -- 1 = write, 0 = read
     signal s_data: std_logic_vector(7 downto 0);
     signal r_data: std_logic_vector(7 downto 0);
     signal adress: std_logic_vector(3 downto 0);
@@ -85,7 +86,8 @@ begin
         adress => adress,
         go => go,
         busy => busy,
-        success => success
+        success => success,
+        rst => rst
     );
     
     i2c_ish_slave: slave generic map (ADRESS => x"2")
@@ -98,7 +100,8 @@ begin
         r_data => r_dataS,
         go => goS,
         busy => busyS,
-        success => successS
+        success => successS,
+        rst => rst
     );
     
     
@@ -118,23 +121,17 @@ begin
     process
     begin
         
-        s_dataS <= x"23";
-        
-        dir <= '1';
-        s_data <= x"51";
-        adress <= x"2";
         go <= '0';
         
         n_data <= '0';
+        s_dataS <= x"25";
+        rst <= '1';
         
-        wait for 20 ns;
+        wait for 5 ns;
         
-        go <= '1';
-        wait for 1 ns;
+        rst <= '0';
         
-        go <= '0';
-        wait for 179 ns;
-        
+        wait for 15 ns;
         
         
         adress <= x"2";
@@ -147,8 +144,23 @@ begin
         
         wait for 179 ns;
         
+        
+        
         dir <= '1';
-        s_data <= x"00";
+        s_data <= x"53";
+        adress <= x"5";
+        
+        go <= '1';
+        wait for 1 ns;
+        
+        go <= '0';
+        wait for 179 ns;
+        
+        
+      
+        
+        dir <= '1';
+        s_data <= x"f2";
         adress <= x"2";
         wait for 5 ns;
         go <= '1';

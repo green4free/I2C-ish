@@ -6,7 +6,7 @@ use IEEE.STD_LOGIC_1164.ALL;
 entity master is
 port (
     data_wire, clk_wire: inout std_logic;
-    clk: in std_logic;
+    clk, rst: in std_logic;
     dir: in std_logic; -- 1 = write, 0 = read
     s_data: in std_logic_vector(7 downto 0);
     r_data: out std_logic_vector(7 downto 0);
@@ -58,8 +58,17 @@ begin
     );
 
 
-    state_transition: process(state, go, counter, clk, dir, pageIn, pageOut, dIn, dOut, adress)
+    state_transition: process(state, go, counter, clk, dir, pageIn, pageOut, dIn, dOut, adress, rst)
     begin
+        
+        if rst = '1' then
+            dOut <= '0';
+            clk_enable <= '0';
+            state <= IDLE;
+            counter <= 0;
+            busy <= '0';
+        else
+        
         
         if clk'event and clk = '1' then
             success <= '0';
@@ -80,12 +89,12 @@ begin
             
             when ADRESSING =>
                 state <= ADRESSING;
-                clk_enable <= '1';
+
                 busy <= '1';
                 
                 rising_clk_addr: if clk'event and clk = '1' then
                     counter <= counter + 1;
-                
+                    clk_enable <= '1';
                 
                     internal_state_addr: if counter < 4 then
                         dOut <= adress(counter);
@@ -119,10 +128,8 @@ begin
                 rising_clk_send: if clk'event and clk = '1' then
                     counter <= counter + 1;
                 
-                
-                    internal_state_send: if counter < 8 then
-                        dOut <= pageOut(counter);
-                    else
+                    dOut <= pageOut(counter);
+                    internal_state_send: if counter >= 7 then
                         counter <= 0;
                         success <= '1';
                         state <= IDLE;
@@ -146,14 +153,14 @@ begin
                 
                 rising_clk_rec: if clk'event and clk = '1' then
                     counter <= counter + 1;
+                    pageIn(counter) <= dIn;
                 
-                
-                    internal_state_rec: if counter < 8 then
-                        pageIn(counter) <= dIn; --Offset for slave clock driven by master
-                    else
+                    internal_state_rec: if counter >= 7 then
                         counter <= 0;
                         success <= '1';
-                        state <= IDLE;                    
+                        state <= IDLE;
+                        clk_enable <= '0'; 
+                        busy <= '0';                  
                     end if internal_state_rec;
                 end if rising_clk_rec;
                 
@@ -161,9 +168,11 @@ begin
             when others =>
                 state <= IDLE;
         end case fsm;
+        
+        end if;
     end process state_transition;
     
-
+    
 
 end behavior;
 
@@ -186,6 +195,7 @@ port (
     data_wire, clk_wire: inout std_logic;
     clkOut: out std_logic;
     dir: out std_logic; -- 1 = write, 0 = read
+    rst: in std_logic;
     s_data: in std_logic_vector(7 downto 0);
     r_data: out std_logic_vector(7 downto 0);
     go: out std_logic;
@@ -215,6 +225,7 @@ end component bus_interface;
     
     signal clk: std_logic;
     signal busy_i: std_logic := '0';
+    signal counter: integer range 0 to 16;
     
 begin
 
@@ -239,23 +250,26 @@ begin
     );
 
 
-    state_transition: process(state, clk, pageIn, pageOut, dIn, dOut)
+    state_transition: process(rst, state, clk, pageIn, pageOut, dIn, dOut)
         variable dir_v: std_logic;
-        variable counter: integer range 0 to 16 := 0;
     begin
         
-        if clk'event and clk = '1' then
+        if rst = '1' then
+            counter <= 0;
+            state <= ADRESSING;
+            dOut <= '0';
+            busy_i <= '0';
+            go <= '0';
             success <= '0';
-        
+            
+        elsif clk'event and clk = '1' then
+            success <= '0';
+            counter <= counter + 1;
 
         fsm: case state is
             
             when ADRESSING =>
-                if busy_i = '0' then
-                    counter := 0;
-                else
-                    counter := counter + 1;
-                end if;
+    
                 
                 dOut <= '0';
                 state <= ADRESSING;
@@ -274,10 +288,10 @@ begin
                     
                     
                     direction: if dir_v = '1' then
-                        counter := 0;
+                        counter <= 0;
                         state <= RECEIVING;
                     else
-                         counter := 1;
+                         counter <= 1;
                          dOut <= pageOut(0);
                          state <= SENDING;
                     end if direction;
@@ -296,16 +310,16 @@ begin
                     success <= '1';
                     busy_i <= '0';
                     go <= '0';
+                    counter <= 0;
                     state <= ADRESSING;
                 end if internal_state_send;
                 
-                counter := counter + 1;
                 
                 check_bus_send: if dIn /= dOut and counter > 0 then
                     dOut <= '0';
-                    busy_i <= '0';
+                    busy_i <= '1';
                     go <= '0';
-                    state <= ADRESSING;
+                    state <= SILENT;
                 end if check_bus_send;
                     
             
@@ -313,17 +327,16 @@ begin
                 dOut <= '0';
                 state <= RECEIVING;
                 busy_i <= '1';
+                pageIn(counter) <= dIn;
                 
-                internal_state_rec: if counter < 8 then
-                    pageIn(counter) <= dIn;
-                else
+                internal_state_rec: if counter >= 7 then
                     success <= '1';
                     busy_i <= '0';
                     go <= '0';
+                    counter <= 0;
                     state <= ADRESSING;                   
                 end if internal_state_rec;
                 
-                counter := counter + 1;
             
             when SILENT =>
                 dOut <= '0';
@@ -333,14 +346,17 @@ begin
                 if counter > 11 then
                     busy_i <= '0';
                     go <= '0';
+                    counter <= 0;
                     state <= ADRESSING;
                 end if;
                 
-                counter := counter + 1;
                                     
             
             when others =>
-                counter := 0;
+                counter <= 0;
+                dOut <= '0';
+                busy_i <= '0';
+                go <= '0';
                 state <= ADRESSING;
         end case fsm;
         
